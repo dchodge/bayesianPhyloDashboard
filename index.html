@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bayesian Phylogenetic Inference</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body {
+            font-family: 'Avenir', 'Avenir Next', -apple-system, BlinkMacSystemFont, sans-serif;
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 40px 20px;
+            background-color: #fff1e5;
+        }
+        h1 {
+            color: #000;
+            text-align: center;
+            font-weight: 400;
+            font-size: 32px;
+            letter-spacing: -0.5px;
+            margin-bottom: 10px;
+        }
+        .subtitle {
+            text-align: center;
+            color: #666;
+            font-size: 14px;
+            margin-bottom: 30px;
+        }
+        .nav-link {
+            text-align: center;
+            margin-bottom: 30px;
+            display: flex;
+            gap: 15px;
+            justify-content: center;
+        }
+        .nav-link a {
+            color: #000;
+            text-decoration: none;
+            padding: 10px 20px;
+            border: 2px solid #000;
+            display: inline-block;
+            font-size: 14px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            transition: all 0.2s;
+        }
+        .nav-link a:hover {
+            background: #000;
+            color: white;
+        }
+        .container {
+            background: white;
+            padding: 40px;
+            border: 1px solid #000;
+        }
+        .controls {
+            margin-bottom: 40px;
+            padding: 30px;
+            background: #000;
+            display: flex;
+            gap: 25px;
+            align-items: flex-end;
+            flex-wrap: wrap;
+            border-top: 3px solid #000;
+            border-bottom: 3px solid #000;
+        }
+        .controls-divider {
+            width: 1px;
+            background: #444;
+            align-self: stretch;
+            margin: 0 5px;
+        }
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        .control-group label {
+            font-weight: 400;
+            color: #fff;
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .control-group input {
+            padding: 8px 12px;
+            border: 1px solid #fff;
+            border-radius: 0;
+            font-size: 14px;
+            width: 110px;
+            background: #000;
+            color: #fff;
+            font-family: 'Courier New', monospace;
+            box-sizing: border-box;
+        }
+        button {
+            padding: 12px 28px;
+            font-size: 14px;
+            font-weight: 400;
+            border: 2px solid #fff;
+            border-radius: 0;
+            cursor: pointer;
+            transition: all 0.2s;
+            background: transparent;
+            color: #fff;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            font-family: 'Avenir', 'Avenir Next', -apple-system, sans-serif;
+            white-space: nowrap;
+        }
+        button:hover:not(:disabled) {
+            background: #fff;
+            color: #000;
+        }
+        button:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+        }
+        button.stop {
+            border-color: #ff6666;
+            color: #ff6666;
+        }
+        button.stop:hover:not(:disabled) {
+            background: #ff6666;
+            color: #000;
+        }
+        details summary {
+            color: #aaa;
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            cursor: pointer;
+            list-style: none;
+        }
+        .fbd-info {
+            margin-top: 8px;
+            font-size: 12px;
+            color: #ccc;
+            font-family: 'Courier New', monospace;
+            line-height: 1.9;
+        }
+        .visualization {
+            display: flex;
+            flex-direction: column;
+            gap: 30px;
+        }
+        .viz-row {
+            display: flex;
+            gap: 30px;
+        }
+        .panel {
+            flex: 1;
+            min-width: 0;
+        }
+        .panel h3 {
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            font-weight: 400;
+            color: #000;
+            margin: 0 0 15px 0;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #000;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        #tree-container, #true-tree-container {
+            width: 100%;
+            height: 500px;
+            border: 1px solid #ddd;
+            background: #fafafa;
+        }
+        .stats-box {
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            line-height: 1.9;
+            color: #333;
+            background: #f9f5f0;
+            padding: 15px;
+            border: 1px solid #ddd;
+            margin-bottom: 25px;
+        }
+        .chart-wrapper {
+            position: relative;
+            height: 240px;
+            width: 100%;
+        }
+        table.recovery-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+            font-family: 'Courier New', monospace;
+        }
+        table.recovery-table th {
+            font-family: 'Avenir', sans-serif;
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            font-weight: 400;
+            padding: 8px 6px;
+            border-bottom: 2px solid #000;
+            text-align: left;
+        }
+        table.recovery-table td {
+            padding: 7px 6px;
+            border-bottom: 1px solid #eee;
+        }
+        #data-container { display: none; }
+        pre#alignment-display {
+            font-family: 'Courier New', monospace;
+            font-size: 11px;
+            max-height: 120px;
+            overflow-y: auto;
+            margin: 0;
+            background: #f9f5f0;
+            padding: 15px;
+            border: 1px solid #ddd;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>Bayesian Phylogenetic Inference</h1>
+    <p class="subtitle">MCMC sampling under an Epidemic Birth-Death model</p>
+
+    <div class="nav-link">
+        <a href="https://dchodge.github.io/molecularEvoDashboard/" target="_blank">Molecular Evolution</a>
+        <a href="https://dchodge.github.io/felsenPruneDashboard/" target="_blank">Pruning Algorithm</a>
+    </div>
+
+    <div class="container">
+
+        <div class="controls">
+            <div class="control-group">
+                <label>True &beta; (Birth)</label>
+                <input type="number" id="sim-birth" value="2.0" step="0.1">
+            </div>
+            <div class="control-group">
+                <label>True &delta; (Death)</label>
+                <input type="number" id="sim-death" value="0.5" step="0.1">
+            </div>
+            <div class="control-group">
+                <label>Sequence Length</label>
+                <input type="number" id="seq-length" value="100" step="10">
+            </div>
+            <button id="btn-simulate">Simulate Data</button>
+
+            <div class="controls-divider"></div>
+
+            <div class="control-group">
+                <label>Prior &beta; Mean</label>
+                <input type="number" id="prior-birth-mean" value="1.0" step="0.1">
+            </div>
+            <div class="control-group">
+                <label>Prior &delta; Mean</label>
+                <input type="number" id="prior-death-mean" value="0.5" step="0.1">
+            </div>
+            <button id="btn-mcmc" disabled>Start MCMC</button>
+            <button id="btn-stop" class="stop" style="display:none;">Stop</button>
+
+            <div class="controls-divider"></div>
+
+            <details>
+                <summary>FBD Fixed Params</summary>
+                <div class="fbd-info">
+                    T (origin): 100<br>
+                    &rho; (extant samp.): 1.0<br>
+                    &psi; (fossil rate): 0.0<br>
+                    r (removal prob): 1.0
+                </div>
+            </details>
+        </div>
+
+        <div class="visualization">
+
+            <!-- Row 1: True tree vs sampled tree -->
+            <div class="viz-row">
+                <div class="panel">
+                    <h3>Simulated True Tree</h3>
+                    <div id="true-tree-container"></div>
+                </div>
+                <div class="panel">
+                    <h3>
+                        <span>Current Sampled Tree</span>
+                        <span id="tree-dist" style="font-size:12px;color:#999;font-weight:400;letter-spacing:0;">RF dist: —</span>
+                    </h3>
+                    <div id="tree-container"></div>
+                </div>
+                <div class="panel">
+                    <h3>
+                        <span>Tree Uncertainty (DensiTree)</span>
+                        <span id="densi-count" style="font-size:12px;color:#999;font-weight:400;letter-spacing:0;">0 trees</span>
+                    </h3>
+                    <div id="densi-container" style="width:100%;height:500px;border:1px solid #ddd;background:#fff;"></div>
+                </div>
+            </div>
+
+            <!-- Row 2: Stats + Trace -->
+            <div class="viz-row">
+                <div class="panel" style="flex:0 0 260px;">
+                    <h3>MCMC Status</h3>
+                    <div class="stats-box" id="stats-panel">
+                        Generation: 0<br>
+                        Acceptance rate: —<br>
+                        Log posterior: —<br>
+                        Current &beta;: —<br>
+                        Current &delta;: —
+                    </div>
+                    <h3>Parameter Recovery</h3>
+                    <div id="recovery-panel">
+                        <table class="recovery-table">
+                            <tr><th>Param</th><th>True</th><th>Post. Mean</th></tr>
+                            <tr><td>&beta;</td><td>—</td><td>—</td></tr>
+                            <tr><td>&delta;</td><td>—</td><td>—</td></tr>
+                        </table>
+                        <div style="font-size:11px;color:#999;margin-top:10px;font-family:sans-serif;">T, &rho;, &psi;, r held fixed</div>
+                    </div>
+                </div>
+                <div class="panel">
+                    <h3>Trace — &beta; (Birth) &amp; &delta; (Death)</h3>
+                    <div class="chart-wrapper">
+                        <canvas id="traceChart"></canvas>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Row 3: Posterior histograms -->
+            <div class="viz-row">
+                <div class="panel">
+                    <h3>Posterior — &beta; (Birth)</h3>
+                    <div class="chart-wrapper" style="height:180px;">
+                        <canvas id="histBirthChart"></canvas>
+                    </div>
+                </div>
+                <div class="panel">
+                    <h3>Posterior — &delta; (Death)</h3>
+                    <div class="chart-wrapper" style="height:180px;">
+                        <canvas id="histDeathChart"></canvas>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Alignment (shown after simulate) -->
+            <div id="data-container">
+                <div class="panel">
+                    <h3>Alignment (first 50 bp)</h3>
+                    <pre id="alignment-display"></pre>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <script src="mcmc.js"></script>
+</body>
+</html>
