@@ -125,6 +125,40 @@
             background: #ff6666;
             color: #000;
         }
+        label.file-btn {
+            padding: 12px 20px;
+            font-size: 14px;
+            font-weight: 400;
+            border: 2px solid #fff;
+            cursor: pointer;
+            color: #fff;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            font-family: 'Avenir', 'Avenir Next', -apple-system, sans-serif;
+            white-space: nowrap;
+            transition: all 0.2s;
+        }
+        label.file-btn:hover {
+            background: #fff;
+            color: #000;
+        }
+        .fasta-filename {
+            color: #888;
+            font-size: 11px;
+            font-family: 'Courier New', monospace;
+            max-width: 140px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .controls-or {
+            color: #555;
+            font-size: 12px;
+            align-self: center;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+            padding: 0 4px;
+        }
         details summary {
             color: #aaa;
             font-size: 12px;
@@ -132,6 +166,81 @@
             letter-spacing: 0.5px;
             cursor: pointer;
             list-style: none;
+        }
+        details.methods-box {
+            margin-top: 30px;
+            border: 1px solid #ccc;
+            background: #fff;
+            padding: 0;
+        }
+        details.methods-box > summary {
+            color: #000;
+            font-size: 13px;
+            font-family: 'Avenir', sans-serif;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            padding: 16px 20px;
+            border-bottom: 1px solid transparent;
+            cursor: pointer;
+            list-style: none;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            user-select: none;
+        }
+        details.methods-box > summary::after {
+            content: '+';
+            font-size: 18px;
+            font-weight: 300;
+            color: #999;
+        }
+        details.methods-box[open] > summary {
+            border-bottom: 1px solid #eee;
+        }
+        details.methods-box[open] > summary::after {
+            content: '−';
+        }
+        .methods-content {
+            padding: 28px 30px 24px;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 28px 40px;
+            font-size: 13.5px;
+            line-height: 1.75;
+            color: #222;
+        }
+        .methods-content h4 {
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            font-weight: 600;
+            margin: 0 0 8px 0;
+            color: #000;
+            border-bottom: 1.5px solid #000;
+            padding-bottom: 6px;
+        }
+        .methods-content p {
+            margin: 0 0 10px 0;
+        }
+        .methods-content .refs {
+            margin-top: 10px;
+            font-size: 11.5px;
+            color: #555;
+            line-height: 1.8;
+        }
+        .methods-content .refs a {
+            color: #000;
+            text-decoration: underline;
+        }
+        .methods-math {
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            background: #f9f5f0;
+            border: 1px solid #e8e0d8;
+            padding: 10px 14px;
+            margin: 8px 0;
+            line-height: 1.9;
+            color: #333;
         }
         .fbd-info {
             margin-top: 8px;
@@ -218,6 +327,83 @@
             padding: 15px;
             border: 1px solid #ddd;
         }
+        /* Methods dropdown */
+        details.methods-box {
+            margin-top: 30px;
+            border: 1px solid #000;
+            background: #fff;
+        }
+        details.methods-box > summary {
+            font-size: 12px;
+            font-family: 'Avenir', sans-serif;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            padding: 14px 20px;
+            cursor: pointer;
+            list-style: none;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            user-select: none;
+            color: #000;
+        }
+        details.methods-box > summary::-webkit-details-marker { display: none; }
+        details.methods-box > summary::after {
+            content: '+';
+            font-size: 18px;
+            font-weight: 300;
+            color: #999;
+        }
+        details.methods-box[open] > summary {
+            border-bottom: 1px solid #ddd;
+        }
+        details.methods-box[open] > summary::after { content: '−'; }
+        .methods-content {
+            padding: 28px 30px 28px;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 28px 48px;
+            font-size: 13.5px;
+            line-height: 1.78;
+            color: #222;
+        }
+        .methods-content h4 {
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            font-weight: 600;
+            margin: 0 0 10px 0;
+            color: #000;
+            border-bottom: 2px solid #000;
+            padding-bottom: 6px;
+        }
+        .methods-content p { margin: 0 0 10px 0; }
+        .methods-math {
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            background: #f9f5f0;
+            border: 1px solid #e8e0d8;
+            padding: 10px 14px;
+            margin: 8px 0 12px;
+            line-height: 1.9;
+            color: #333;
+        }
+        .refs {
+            margin-top: 12px;
+            font-size: 12px;
+            color: #555;
+            line-height: 1.85;
+            border-top: 1px solid #eee;
+            padding-top: 10px;
+        }
+        .methods-note {
+            grid-column: 1 / -1;
+            font-size: 12px;
+            color: #888;
+            border-top: 1px solid #eee;
+            padding-top: 16px;
+            line-height: 1.75;
+        }
     </style>
 </head>
 <body>
@@ -242,8 +428,12 @@
                 <input type="number" id="sim-death" value="0.5" step="0.1">
             </div>
             <div class="control-group">
+                <label>True &mu; (Mut. Rate)</label>
+                <input type="number" id="true-mu" value="0.01" step="0.001">
+            </div>
+            <div class="control-group">
                 <label>Sequence Length</label>
-                <input type="number" id="seq-length" value="100" step="10">
+                <input type="number" id="seq-length" value="300" step="50">
             </div>
             <button id="btn-simulate">Simulate Data</button>
 
@@ -257,15 +447,35 @@
                 <label>Prior &delta; Mean</label>
                 <input type="number" id="prior-death-mean" value="0.5" step="0.1">
             </div>
+            <div class="control-group">
+                <label>Prior &mu; Mean</label>
+                <input type="number" id="prior-mu-mean" value="0.01" step="0.001">
+            </div>
             <button id="btn-mcmc" disabled>Start MCMC</button>
             <button id="btn-stop" class="stop" style="display:none;">Stop</button>
 
             <div class="controls-divider"></div>
 
+            <span class="controls-or">or load FASTA</span>
+
+            <div>
+                <input type="file" id="fasta-file-input" accept=".fasta,.fa,.txt,.aln" style="display:none;">
+                <label class="file-btn" for="fasta-file-input">Choose file</label>
+                <div id="fasta-filename" class="fasta-filename" style="margin-top:5px;">no file chosen</div>
+            </div>
+            <div class="control-group">
+                <label>Root Age Calibration</label>
+                <input type="number" id="fasta-root-age" value="1.0" step="0.1" placeholder="e.g. 1.0">
+            </div>
+            <button id="btn-load-fasta">Load &amp; Run</button>
+
+            <div class="controls-divider"></div>
+
             <details>
-                <summary>FBD Fixed Params</summary>
+                <summary>Fixed Parameters &amp; Calibration</summary>
                 <div class="fbd-info">
-                    T (origin): 100<br>
+                    Root age (calibration): <span id="fbd-root-age">—</span><br>
+                    Root age &sigma;: &plusmn;20%<br>
                     &rho; (extant samp.): 1.0<br>
                     &psi; (fossil rate): 0.0<br>
                     r (removal prob): 1.0
@@ -339,8 +549,12 @@
                     <div class="chart-wrapper" style="height:180px;">
                         <canvas id="histDeathChart"></canvas>
                     </div>
-                </div>
-            </div>
+                </div>                <div class="panel">
+                    <h3>Posterior &mdash; &mu; (Mutation Rate)</h3>
+                    <div class="chart-wrapper" style="height:180px;">
+                        <canvas id="histMuChart"></canvas>
+                    </div>
+                </div>            </div>
 
             <!-- Alignment (shown after simulate) -->
             <div id="data-container">
@@ -352,6 +566,114 @@
 
         </div>
     </div>
+
+    <details class="methods-box">
+        <summary>Methods &amp; References</summary>
+        <div class="methods-content">
+
+            <div>
+                <h4>1 &mdash; Birth-Death Tree Simulation</h4>
+                <p>A phylogenetic tree is simulated under a stochastic birth-death process. At each event a
+                lineage either speciates (rate &beta;) or goes extinct (rate &delta;). The process runs
+                until 20 extant lineages are produced. Branch lengths are in units of expected substitutions
+                per site once scaled by the mutation rate &mu;.</p>
+                <div class="methods-math">
+                    dN/dt = (&beta; &minus; &delta;) N<br>
+                    r = &beta; &minus; &delta;  (net diversification)
+                </div>
+                <div class="refs">
+                    Kendall (1948) <em>Ann. Math. Stat.</em> 19:1&ndash;15.<br>
+                    Nee, May &amp; Harvey (1994) <em>Phil. Trans. R. Soc. B</em> 344:77&ndash;83.<br>
+                    Stadler (2010) <em>J. Theor. Biol.</em> 267:396&ndash;408.
+                </div>
+            </div>
+
+            <div>
+                <h4>2 &mdash; Sequence Evolution (JC69 Model)</h4>
+                <p>Sequences evolve along branches under the Jukes&ndash;Cantor model: all nucleotide
+                substitutions occur at equal rate &mu;, giving a closed-form transition probability
+                used both in simulation and in the Felsenstein likelihood.</p>
+                <div class="methods-math">
+                    P(same | t) = &frac14; + &frac34; e<sup>&minus;&mu;t</sup><br>
+                    P(diff | t) = &frac14; &minus; &frac14; e<sup>&minus;&mu;t</sup>
+                </div>
+                <div class="refs">
+                    Jukes &amp; Cantor (1969) in <em>Mammalian Protein Metabolism</em> pp. 21&ndash;132.
+                </div>
+            </div>
+
+            <div>
+                <h4>3 &mdash; Felsenstein Pruning Algorithm</h4>
+                <p>The log-likelihood of the observed alignment given tree topology, branch lengths, and
+                &mu; is computed exactly via dynamic programming on the tree. For each site, partial
+                likelihoods are swept from tips to the root under the JC transition matrix.
+                This is the most computationally significant step per MCMC iteration.</p>
+                <div class="methods-math">
+                    L<sub>i</sub>(s) = &prod;<sub>c</sub> &sum;<sub>t</sub> P(t|s, bl<sub>c</sub>) L<sub>c</sub>(t)
+                </div>
+                <div class="refs">
+                    Felsenstein (1981) <em>J. Mol. Evol.</em> 17:368&ndash;376.
+                </div>
+            </div>
+
+            <div>
+                <h4>4 &mdash; Yule / Birth-Death Tree Likelihood</h4>
+                <p>The branching times (internal node heights) are scored against a Yule waiting-time
+                density with net diversification rate r&nbsp;=&nbsp;&beta;&nbsp;&minus;&nbsp;&delta;.
+                This term is the primary data constraint on &beta; and &delta;, complementing the
+                Felsenstein likelihood which constrains &mu; and branch lengths.</p>
+                <div class="methods-math">
+                    log P(T | &beta;, &delta;) = &sum;<sub>i</sub>
+                    [ log(i&middot;r) &minus; i&middot;r&middot;&Delta;t<sub>i</sub> ]
+                </div>
+                <div class="refs">
+                    Nee et al. (1994) as above.<br>
+                    Rannala &amp; Yang (1996) <em>J. Mol. Evol.</em> 43:304&ndash;311.
+                </div>
+            </div>
+
+            <div>
+                <h4>5 &mdash; MCMC with Block Updates</h4>
+                <p>The posterior is explored via Metropolis&ndash;Hastings MCMC using a
+                <em>block-update</em> operator schedule (following BEAST). Each iteration
+                randomly selects one of three operators:</p>
+                <p><strong>Block A</strong> &mdash; &mu; only (log-scale proposal, step&nbsp;0.5).<br>
+                <strong>Block B</strong> &mdash; &beta; and &delta; only (log-scale proposal).<br>
+                <strong>Block C</strong> &mdash; tree: NNI topology move (60%) or branch-length
+                scaling of 3 random edges (40%).</p>
+                <p>Block updates prevent the non-identifiable joint drift of &beta; and &mu; through
+                shared branch lengths, the same mechanism used in BEAST&rsquo;s operator schedule.</p>
+                <div class="refs">
+                    Metropolis et al. (1953) <em>J. Chem. Phys.</em> 21:1087.<br>
+                    Hastings (1970) <em>Biometrika</em> 57:97&ndash;109.<br>
+                    Drummond et al. (2002) <em>Genetics</em> 161:1307&ndash;1320.<br>
+                    Drummond &amp; Rambaut (2007) <em>BMC Evol. Biol.</em> 7:214.
+                </div>
+            </div>
+
+            <div>
+                <h4>6 &mdash; Root-Age Calibration &amp; Convergence Diagnostics</h4>
+                <p>A Gaussian root-age calibration prior (analogous to a fossil calibration in BEAST)
+                anchors the absolute time scale &mdash; without it &beta; and &mu; are
+                non-identifiable. The posterior is summarised post burn-in (last 50%) using:</p>
+                <p><strong>ESS</strong> &mdash; effective sample size via integrated autocorrelation
+                time; values &lt;200 indicate the chain needs more iterations.<br>
+                <strong>95% HPD</strong> &mdash; the shortest interval containing 95% of the
+                post-burnin samples.</p>
+                <div class="refs">
+                    Drummond et al. (2006) <em>PLOS Biology</em> 4:e88.<br>
+                    Bouckaert et al. (2019) <em>PLOS Comput. Biol.</em> 15:e1006650.<br>
+                    Robinson &amp; Foulds (1981) <em>Math. Biosci.</em> 53:131&ndash;147 (RF distance).<br>
+                    Bouckaert (2010) <em>Bioinformatics</em> 26:1372&ndash;1373 (DensiTree).
+                </div>
+            </div>
+
+            <p class="methods-note">
+                <strong>Limitations:</strong> This demo uses a Yule approximation (ignoring full birth-death conditioning), JC69 with no among-site rate variation, and a calibration that uses the known true root age rather than a genuine fossil prior. Real analyses (e.g. in BEAST2 or MrBayes) use the full Stadler FBD likelihood, GTR+&Gamma; substitution models, and empirical fossil priors.
+            </p>
+
+        </div>
+    </details>
 
     <script src="mcmc.js"></script>
 </body>

@@ -10,11 +10,56 @@ class Node {
     }
 }
 
+// ─── FASTA parser ─────────────────────────────────────────────────────────────
+function parseFasta(text) {
+    const msa = {};
+    let currentName = null;
+    for (const rawLine of text.split(/\r?\n/)) {
+        const line = rawLine.trim();
+        if (!line) continue;
+        if (line.startsWith('>')) {
+            currentName = line.slice(1).trim().split(/\s+/)[0]; // first word only
+            msa[currentName] = '';
+        } else if (currentName) {
+            msa[currentName] += line.toUpperCase().replace(/[^ACGT]/g, 'A'); // treat ambiguous as A
+        }
+    }
+    return msa;
+}
+
+// Build a random binary tree purely from an array of leaf name strings.
+function buildRandomTreeFromNames(names) {
+    let nodeId = 0;
+    let pending = names.map(name => {
+        const n = new Node(name);
+        n.length = Math.random() * 0.5 + 0.05;
+        return n;
+    });
+    while (pending.length > 1) {
+        let i = Math.floor(Math.random() * pending.length);
+        let j; do { j = Math.floor(Math.random() * pending.length); } while (j === i);
+        if (i > j) [i, j] = [j, i];
+        const a = pending[i], b = pending[j];
+        pending.splice(j, 1); pending.splice(i, 1);
+        const internal = new Node('_r' + (nodeId++));
+        internal.length = Math.random() * 0.5 + 0.05;
+        a.parent = internal; b.parent = internal;
+        internal.childs = [a, b];
+        pending.push(internal);
+    }
+    const root = pending[0];
+    root.length = 0; root.parent = null;
+    return root;
+}
+
 // Global state
 let state = {
     trueTree: null,
-    trueBirth: 2.0,
-    trueDeath: 0.5,
+    trueBirth: NaN,
+    trueDeath: NaN,
+    trueMu: NaN,
+    trueRootHeight: 0,
+    isRealData: false,
     msa: {},
     mcmcRunning: false,
     mcmcStep: 0,
@@ -22,17 +67,19 @@ let state = {
     currentTree: null,
     currentBirth: 1.0,
     currentDeath: 0.5,
+    currentMu: 0.01,
     currentLogPosterior: -Infinity,
     treeSamples: [],          // ring buffer of cloned trees for DensiTree
     traceData: {
         gen: [],
         logPost: [],
         birth: [],
-        death: []
+        death: [],
+        mu: []
     }
 };
 
-let chart, histBirthChart, histDeathChart;
+let chart, histBirthChart, histDeathChart, histMuChart;
 
 function makeHistData(samples, nBins, color) {
     if (!samples || samples.length === 0) return { labels: [], data: [] };
@@ -50,10 +97,42 @@ function makeHistData(samples, nBins, color) {
     return { labels, data: counts };
 }
 
-function initHistChart(canvasId, label, color) {
+// Returns a Chart.js plugin that draws a dashed vertical line at the true parameter value.
+function makeVertLinePlugin(getTrueValue, strokeStyle = '#000') {
+    return {
+        id: 'trueLine',
+        afterDraw(chart) {
+            const trueVal = getTrueValue();
+            if (!isFinite(trueVal)) return;
+            const labels = chart.data.labels;
+            if (!labels || labels.length < 2) return;
+            const vals = labels.map(Number);
+            const xMin = vals[0];
+            const xMax = vals[vals.length - 1];
+            if (xMax === xMin) return;
+            const frac = (trueVal - xMin) / (xMax - xMin);
+            const xScale = chart.scales.x;
+            const x = xScale.left + frac * (xScale.right - xScale.left);
+            const ctx = chart.ctx;
+            ctx.save();
+            ctx.beginPath();
+            ctx.moveTo(x, chart.scales.y.top);
+            ctx.lineTo(x, chart.scales.y.bottom);
+            ctx.strokeStyle = strokeStyle;
+            ctx.lineWidth = 2;
+            ctx.setLineDash([6, 3]);
+            ctx.stroke();
+            ctx.restore();
+        }
+    };
+}
+
+function initHistChart(canvasId, label, color, getTrueValue) {
+    const plugins = getTrueValue ? [makeVertLinePlugin(getTrueValue)] : [];
     const ctx = document.getElementById(canvasId).getContext('2d');
     return new Chart(ctx, {
         type: 'bar',
+        plugins,
         data: {
             labels: [],
             datasets: [{
@@ -86,7 +165,8 @@ function initHistChart(canvasId, label, color) {
 
 function updateHistograms() {
     const nBins = 30;
-    const burnIn = Math.floor(state.traceData.gen.length / 4);
+    // Use only the last half of the chain as the posterior (50% burn-in)
+    const burnIn = Math.floor(state.traceData.gen.length / 2);
     const bSamples = state.traceData.birth.slice(burnIn);
     const dSamples = state.traceData.death.slice(burnIn);
 
@@ -99,6 +179,12 @@ function updateHistograms() {
     histDeathChart.data.labels = dH.labels;
     histDeathChart.data.datasets[0].data = dH.data;
     histDeathChart.update();
+
+    const muSamples = state.traceData.mu.slice(burnIn);
+    const mH = makeHistData(muSamples, nBins);
+    histMuChart.data.labels = mH.labels;
+    histMuChart.data.datasets[0].data = mH.data;
+    histMuChart.update();
 }
 
 function initChart() {
@@ -127,6 +213,16 @@ function initChart() {
                     yAxisID: 'y',
                     fill: false,
                     tension: 0
+                },
+                {
+                    label: 'μ (Mutation ×10)',
+                    data: [],
+                    borderColor: 'green',
+                    borderWidth: 1,
+                    pointRadius: 0,
+                    yAxisID: 'y1',
+                    fill: false,
+                    tension: 0
                 }
             ]
         },
@@ -134,15 +230,19 @@ function initChart() {
             animation: false,
             responsive: true,
             maintainAspectRatio: false,
+            plugins: { legend: { display: true, labels: { boxWidth: 12, font: { size: 11 } } } },
             scales: {
                 x: { title: { display: true, text: 'Generation' } },
-                y: { title: { display: true, text: 'Rate' }, min: 0 }
+                y: { title: { display: true, text: 'β / δ' }, min: 0, position: 'left' },
+                y1: { title: { display: true, text: 'μ' }, min: 0, position: 'right',
+                      grid: { drawOnChartArea: false } }
             }
         }
     });
 
-    histBirthChart = initHistChart('histBirthChart', 'β (Birth)', 'rgba(0,0,200,0.5)');
-    histDeathChart = initHistChart('histDeathChart', 'δ (Death)', 'rgba(200,0,0,0.5)');
+    histBirthChart = initHistChart('histBirthChart', 'β (Birth)',        'rgba(0,0,200,0.5)',   () => state.trueBirth);
+    histDeathChart = initHistChart('histDeathChart', 'δ (Death)',        'rgba(200,0,0,0.5)',   () => state.trueDeath);
+    histMuChart    = initHistChart('histMuChart',    'μ (Mutation Rate)','rgba(0,150,0,0.5)',   () => state.trueMu);
 }
 
 function parseNewick(node) {
@@ -233,14 +333,14 @@ function mutateSeq(seq, time, rate=0.01) {
     return newSeq;
 }
 
-function evolveSequences(node, seqLen) {
+function evolveSequences(node, seqLen, mu) {
     if(!node.parent) {
         node.seq = Array(seqLen).fill(0).map(()=>NUC[Math.floor(Math.random()*4)]).join('');
     } else {
-        node.seq = mutateSeq(node.parent.seq, node.length);
+        node.seq = mutateSeq(node.parent.seq, node.length, mu);
     }
     for(let c of node.childs) {
-        evolveSequences(c, seqLen);
+        evolveSequences(c, seqLen, mu);
     }
 }
 
@@ -262,6 +362,96 @@ function cloneTree(node, parent = null) {
         copy.childs.push(cloneTree(c, copy));
     }
     return copy;
+}
+
+// ─── Real Felsenstein JC Pruning Likelihood ──────────────────────────────────
+
+const NUC_IDX = {A:0, C:1, G:2, T:3};
+
+// JC transition probability: P(same | t, mu) or P(diff | t, mu)
+// Here `mu` is the per-site substitution rate (= 4α/3 in standard JC notation).
+// This matches the simulation in mutateSeq where the same `rate` parameter is used.
+function jcProb(isSame, t, mu) {
+    const p = Math.exp(-mu * t);
+    return isSame ? 0.25 + 0.75 * p : 0.25 - 0.25 * p;
+}
+
+// Felsenstein pruning at one site — returns Float64Array[4] of partial likelihoods
+function pruningNode(node, siteCols, mu) {
+    if (!node.childs || node.childs.length === 0) {
+        const L = new Float64Array(4);
+        const idx = NUC_IDX[siteCols[node.id]];
+        if (idx !== undefined) L[idx] = 1.0;
+        else L.fill(1.0); // ambiguous / gap
+        return L;
+    }
+    const L = new Float64Array([1, 1, 1, 1]);
+    for (const child of node.childs) {
+        if (child.leaf_dead) continue;
+        const cL = pruningNode(child, siteCols, mu);
+        const t = Math.max(child.length, 1e-6);
+        const pS = jcProb(true,  t, mu);
+        const pD = jcProb(false, t, mu);
+        const sumC = cL[0] + cL[1] + cL[2] + cL[3];
+        // For each parent state i: sum_j P(j|i) * cL[j] = pD*sumC + (pS-pD)*cL[i]
+        for (let i = 0; i < 4; i++) {
+            L[i] *= pD * sumC + (pS - pD) * cL[i];
+        }
+    }
+    return L;
+}
+
+// Sum over all sites — returns log-likelihood
+function computeFelsensteinLogLikelihood(tree, msa, mu) {
+    const taxa = Object.keys(msa);
+    if (!taxa.length) return 0;
+    const seqLen = msa[taxa[0]].length;
+    let logL = 0;
+    for (let site = 0; site < seqLen; site++) {
+        const siteCols = {};
+        for (const tx of taxa) siteCols[tx] = msa[tx][site];
+        const rootL = pruningNode(tree, siteCols, mu);
+        // Equal root frequencies under JC (0.25 each)
+        const siteL = 0.25 * (rootL[0] + rootL[1] + rootL[2] + rootL[3]);
+        if (siteL <= 0) return -Infinity;
+        logL += Math.log(siteL);
+    }
+    return logL;
+}
+
+// ─── MCMC Convergence Diagnostics ────────────────────────────────────────────
+
+// Effective Sample Size via integrated autocorrelation time
+function computeESS(samples) {
+    const n = samples.length;
+    if (n < 20) return n;
+    const mean = samples.reduce((a, b) => a + b, 0) / n;
+    const variance = samples.reduce((a, b) => a + (b - mean) ** 2, 0) / n;
+    if (variance < 1e-12) return 1;
+    let rhoSum = 0;
+    const maxLag = Math.min(n - 1, 200);
+    for (let lag = 1; lag <= maxLag; lag++) {
+        let cov = 0;
+        for (let i = 0; i < n - lag; i++) cov += (samples[i] - mean) * (samples[i + lag] - mean);
+        const rho = cov / (n * variance);
+        if (rho < 0.05) break;
+        rhoSum += rho;
+    }
+    return Math.min(n, Math.round(n / (1 + 2 * rhoSum)));
+}
+
+// Shortest interval containing credMass of the sorted posterior samples
+function computeHPD(samples, credMass = 0.95) {
+    if (samples.length < 10) return [NaN, NaN];
+    const sorted = [...samples].sort((a, b) => a - b);
+    const n = sorted.length;
+    const nIn = Math.floor(credMass * n);
+    let bestWidth = Infinity, lo = sorted[0], hi = sorted[n - 1];
+    for (let i = 0; i <= n - nIn; i++) {
+        const w = sorted[i + nIn - 1] - sorted[i];
+        if (w < bestWidth) { bestWidth = w; lo = sorted[i]; hi = sorted[i + nIn - 1]; }
+    }
+    return [lo, hi];
 }
 
 // Build a completely random binary tree from the same leaf names as the true tree.
@@ -362,12 +552,16 @@ document.addEventListener("DOMContentLoaded", () => {
     initChart();
     
     document.getElementById("btn-simulate").addEventListener("click", () => {
+        state.isRealData = false;
         state.trueBirth = parseFloat(document.getElementById("sim-birth").value);
         state.trueDeath = parseFloat(document.getElementById("sim-death").value);
         let seqL = parseInt(document.getElementById("seq-length").value);
 
+        state.trueMu   = parseFloat(document.getElementById("true-mu").value) || 0.01;
         state.trueTree = simulateBD(state.trueBirth, state.trueDeath, 20);
-        evolveSequences(state.trueTree, seqL);
+        evolveSequences(state.trueTree, seqL, state.trueMu);
+        state.trueRootHeight = computeRootHeight(state.trueTree);
+        document.getElementById('fbd-root-age').textContent = state.trueRootHeight.toFixed(3);
         
         state.msa = {};
         extractMSA(state.trueTree, state.msa);
@@ -380,8 +574,9 @@ document.addEventListener("DOMContentLoaded", () => {
         
         // Init MCMC starting state with a completely random tree topology
         state.currentTree = buildRandomTree(state.trueTree);
-        state.currentBirth = Math.random() * 3 + 0.5; // Random start
-        state.currentDeath = Math.random() * 1.5 + 0.1; // Random start
+        state.currentBirth = Math.random() * 3 + 0.5;       // Random start
+        state.currentDeath = Math.random() * 1.5 + 0.1;     // Random start
+        state.currentMu    = Math.random() * 0.08 + 0.002;  // Random start
         state.mcmcRunning = false;
         
         drawTreeCanvas(state.trueTree, "true-tree-container");
@@ -392,19 +587,88 @@ document.addEventListener("DOMContentLoaded", () => {
         
         document.getElementById("recovery-panel").innerHTML = `
             <table class="recovery-table">
-                <tr>
-                    <th>Param</th><th>True</th><th>Est. (Mean)</th>
-                </tr>
-                <tr>
-                    <td>β</td><td>${state.trueBirth.toFixed(2)}</td><td>-</td>
-                </tr>
-                <tr>
-                    <td>δ</td><td>${state.trueDeath.toFixed(2)}</td><td>-</td>
-                </tr>
+                <tr><th>Param</th><th>True</th><th>Mean</th><th>95% HPD</th><th>ESS</th></tr>
+                <tr><td>β</td><td>${state.trueBirth.toFixed(3)}</td><td>—</td><td>—</td><td>—</td></tr>
+                <tr><td>δ</td><td>${state.trueDeath.toFixed(3)}</td><td>—</td><td>—</td><td>—</td></tr>
+                <tr><td>μ</td><td>${state.trueMu.toFixed(4)}</td><td>—</td><td>—</td><td>—</td></tr>
             </table>
-            <div style="font-size: 11px; color: #777; margin-top: 8px;">*T, ρ, ψ, r held fixed.</div>
+            <div style="font-size: 11px; color: #777; margin-top: 8px;">T, ρ, ψ, r fixed. ¼ burn-in discarded.</div>
         `;
 
+    });
+
+    // ── FASTA file upload ──────────────────────────────────────────────────
+    document.getElementById("fasta-file-input").addEventListener("change", (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        document.getElementById("fasta-filename").textContent = file.name;
+    });
+
+    document.getElementById("fasta-file-input").addEventListener("change", (e) => {
+        const file = e.target.files[0];
+        const display = document.getElementById("fasta-filename");
+        display.textContent = file ? file.name : "no file chosen";
+    });
+
+    document.getElementById("btn-load-fasta").addEventListener("click", () => {
+        const file = document.getElementById("fasta-file-input").files[0];
+        if (!file) { alert("Please choose a FASTA file first."); return; }
+
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            const msa = parseFasta(e.target.result);
+            const names = Object.keys(msa);
+            if (names.length < 4) { alert("FASTA must contain at least 4 sequences."); return; }
+            const seqLen = msa[names[0]].length;
+            if (!names.every(n => msa[n].length === seqLen)) {
+                alert("All sequences must be the same length (aligned FASTA)."); return;
+            }
+
+            // Validate root age calibration
+            const rootAgeEl = document.getElementById("fasta-root-age");
+            const rootAge = parseFloat(rootAgeEl.value);
+            if (!(rootAge > 0)) { alert("Please enter a positive root age calibration."); return; }
+
+            state.isRealData  = true;
+            state.trueTree    = null;
+            state.trueBirth   = NaN;
+            state.trueDeath   = NaN;
+            state.trueMu      = NaN;
+            state.trueRootHeight = rootAge;
+            state.msa         = msa;
+
+            state.currentTree  = buildRandomTreeFromNames(names);
+            state.currentBirth = Math.random() * 3 + 0.5;
+            state.currentDeath = Math.random() * 1.5 + 0.1;
+            state.currentMu    = Math.random() * 0.08 + 0.002;
+            state.mcmcRunning  = false;
+
+            document.getElementById('fbd-root-age').textContent = rootAge.toFixed(3);
+
+            // Show alignment preview
+            let msaStr = names.map(k => ">" + k + "\n" + msa[k].substring(0, 60)).join("\n");
+            document.getElementById("alignment-display").textContent = msaStr;
+            document.getElementById("data-container").style.display = "block";
+
+            // Update panels
+            const trueTreeContainer = document.getElementById("true-tree-container");
+            trueTreeContainer.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#aaa;font-size:13px;font-family:sans-serif;">No true tree — real data mode</div>`;
+            drawTreeCanvas(state.currentTree, "tree-container");
+            document.getElementById("tree-dist").textContent = "";
+
+            document.getElementById("recovery-panel").innerHTML = `
+                <table class="recovery-table">
+                    <tr><th>Param</th><th>Mean</th><th>95% HPD</th><th>ESS</th></tr>
+                    <tr><td>β</td><td>—</td><td>—</td><td>—</td></tr>
+                    <tr><td>δ</td><td>—</td><td>—</td><td>—</td></tr>
+                    <tr><td>μ</td><td>—</td><td>—</td><td>—</td></tr>
+                </table>
+                <div style="font-size:11px;color:#777;margin-top:8px;">${names.length} taxa · ${seqLen} bp</div>
+            `;
+
+            document.getElementById("btn-mcmc").disabled = false;
+        };
+        reader.readAsText(file);
     });
 
     document.getElementById("btn-mcmc").addEventListener("click", () => {
@@ -414,10 +678,11 @@ document.addEventListener("DOMContentLoaded", () => {
         
         state.mcmcStep = 0;
         state.accepted = 0;
-        state.traceData = { gen: [], logPost: [], birth: [], death: [] };
+        state.traceData = { gen: [], logPost: [], birth: [], death: [], mu: [] };
         state.treeSamples = [];
         
-        state.currentLogPosterior = computeLogPosterior(state.currentBirth, state.currentDeath, state.currentTree);
+        state.currentLogPosterior = computeLogPosterior(
+            state.currentBirth, state.currentDeath, state.currentMu, state.currentTree);
         
         runMCMCStep();
     });
@@ -429,8 +694,6 @@ document.addEventListener("DOMContentLoaded", () => {
     });
 });
 
-// Mock Log Posterior (since Felsenstein pruning gets too large for a 1-file demo)
-// We'll use a mocked likelihood heavily anchored on the # of nodes and sequence similarity 
 // Collect all branch lengths in a tree
 function collectBranchLengths(node, out = []) {
     if (node.parent) out.push(node.length || 0);
@@ -438,50 +701,102 @@ function collectBranchLengths(node, out = []) {
     return out;
 }
 
-function computeTreeLikelihood(tree) {
-    if (!tree || !state.trueTree) return -50;
-
-    // 1. Topology score: RF split distance (lower = more similar topology)
-    let rfDist = getTreeDistance(tree, state.trueTree);
-    let topoScore = -rfDist * 15;
-
-    // 2. Branch-length score: penalise deviation from true tree's total branch length
-    //    (proxy for data constraining internal node times)
-    let sampledLens = collectBranchLengths(tree);
-    let trueLens = collectBranchLengths(state.trueTree);
-    let sampledTotal = sampledLens.reduce((a, b) => a + b, 0);
-    let trueTotal = trueLens.reduce((a, b) => a + b, 0);
-    let blScore = -Math.pow(sampledTotal - trueTotal, 2) * 5;
-
-    return topoScore + blScore - (Math.random() * 0.5);
+// Max root-to-tip path (= root age in branch-length units)
+function computeRootHeight(tree) {
+    function maxPath(node) {
+        if (!node.childs || node.childs.length === 0) return node.leaf_dead ? -Infinity : 0;
+        let best = -Infinity;
+        for (const c of node.childs) {
+            const h = (c.length || 0) + maxPath(c);
+            if (h > best) best = h;
+        }
+        return Math.max(best, 0);
+    }
+    return maxPath(tree);
 }
 
-function computeLogPosterior(b, d, tree) {
-    if (b <= 0 || d < 0) return -Infinity;
+// ─── Birth-Death Tree Likelihood ─────────────────────────────────────────────
+// Yule approximation using net diversification rate r = beta - delta.
+// Collects internal node heights (time from present = 0) and scores them under
+// the Yule waiting-time density.  This is the primary constraint on β and δ.
+function computeBDTreeLogLik(tree, beta, delta) {
+    const r = beta - delta;
+    if (r <= 1e-6) return -Infinity; // require positive net diversification
 
-    // Log-normal priors on birth/death rates
-    let priorBMean = parseFloat(document.getElementById("prior-birth-mean").value);
-    let priorDMean = parseFloat(document.getElementById("prior-death-mean").value);
-    let logPrior = -Math.pow(Math.log(b) - Math.log(priorBMean), 2)
-                 - Math.pow(Math.log(d) - Math.log(priorDMean), 2);
+    // Compute height of a node as max path-length to any live descendant tip
+    function nodeHeight(node) {
+        if (!node.childs || node.childs.length === 0) return 0;
+        let best = 0;
+        for (const c of node.childs) {
+            if (!c.leaf_dead) {
+                const h = (c.length || 0) + nodeHeight(c);
+                if (h > best) best = h;
+            }
+        }
+        return best;
+    }
+
+    // Collect heights of every internal node (including root)
+    const heights = [];
+    function collectInternal(node) {
+        if (node.childs && node.childs.length > 0 && !node.leaf_dead) {
+            heights.push(nodeHeight(node));
+            for (const c of node.childs) if (!c.leaf_dead) collectInternal(c);
+        }
+    }
+    collectInternal(tree);
+
+    if (heights.length < 2) return 0;
+    heights.sort((a, b) => b - a); // descending: [root age, ..., youngest]
+
+    // Yule log L: for each depth interval i, there are (i+2) lineages.
+    // Waiting time density: Exp((i+2)*r)  →  log contribution = log((i+2)*r) - (i+2)*r*gap
+    let logL = 0;
+    for (let i = 0; i < heights.length; i++) {
+        const lineages = i + 2;
+        const gap = heights[i] - (i + 1 < heights.length ? heights[i + 1] : 0);
+        logL += Math.log(lineages * r) - lineages * r * gap;
+    }
+    return logL;
+}
+
+// Log-posterior: Felsenstein likelihood + BD tree likelihood + priors.
+function computeLogPosterior(b, d, mu, tree) {
+    if (b <= 0 || d < 0 || mu <= 0) return -Infinity;
+
+    // Log-normal priors on rates  (log P ∝ -(log θ - log mean)²)
+    const priorBMean  = parseFloat(document.getElementById("prior-birth-mean").value);
+    const priorDMean  = parseFloat(document.getElementById("prior-death-mean").value);
+    const priorMuMean = parseFloat(document.getElementById("prior-mu-mean").value);
+    const logPrior = -Math.pow(Math.log(b)  - Math.log(priorBMean),  2)
+                   - Math.pow(Math.log(d)  - Math.log(priorDMean),  2)
+                   - Math.pow(Math.log(mu) - Math.log(priorMuMean), 2);
 
     // Exponential prior on every branch length (rate = 2, mean = 0.5)
-    // log P(bl) = log(2) - 2*bl  =>  discourages very long branches
     const expRate = 2;
     let branchLengthLogPrior = 0;
-    collectBranchLengths(tree).forEach(bl => {
-        if (bl <= 0) { branchLengthLogPrior = -Infinity; return; }
+    for (const bl of collectBranchLengths(tree)) {
+        if (bl <= 0) return -Infinity;
         branchLengthLogPrior += Math.log(expRate) - expRate * bl;
-    });
-    if (!isFinite(branchLengthLogPrior)) return -Infinity;
+    }
 
-    // Data constraint on rates (simulate posterior being near truth)
-    let constraintScore = -Math.pow(b - state.trueBirth, 2) * 50
-                        - Math.pow(d - state.trueDeath, 2) * 50;
+    // Real Felsenstein pruning likelihood from the sequence alignment (informs μ + branch lengths)
+    const logLikelihood = computeFelsensteinLogLikelihood(tree, state.msa, mu);
 
-    let logLikelihood = computeTreeLikelihood(tree);
+    // Birth-death tree likelihood from branching times (informs β, δ)
+    const logBDTree = computeBDTreeLogLik(tree, b, d);
 
-    return logLikelihood + logPrior + branchLengthLogPrior + constraintScore;
+    // Root-age calibration prior — anchors the time scale, breaking the μ↔β confound.
+    // Analogous to a fossil calibration in BEAST: the root age should match the observed
+    // tree height to within ~5%.  Without this, μ and β are non-identifiable.
+    const sampledRootHeight = computeRootHeight(tree);
+    const rootSigmaFrac = 0.05; // allow ±5% of true root age
+    const rootSigma = rootSigmaFrac * state.trueRootHeight;
+    const logRootCalib = rootSigma > 0
+        ? -0.5 * Math.pow((sampledRootHeight - state.trueRootHeight) / rootSigma, 2)
+        : 0;
+
+    return logLikelihood + logBDTree + logPrior + branchLengthLogPrior + logRootCalib;
 }
 
 // NNI move: pick an internal edge (v with internal parent u),
@@ -544,39 +859,60 @@ function mutateTree(tree) {
 function runMCMCStep() {
     if(!state.mcmcRunning) return;
 
-    for(let i=0; i<10; i++) { // chunk steps for performance
+    for(let i=0; i<10; i++) { // chunk 10 sub-steps per animation frame
         state.mcmcStep++;
-        
-        // Propose new parameter
-        let propB = state.currentBirth + (Math.random() - 0.5) * 0.5;
-        let propD = state.currentDeath + (Math.random() - 0.5) * 0.2;
-        
-        // Tree proposal (branch length scaling)
-        let propTree = mutateTree(state.currentTree);
-        
-        let newLogPost = computeLogPosterior(propB, propD, propTree);
-        
-        let logAcceptRatio = newLogPost - state.currentLogPosterior;
-        
-        // Metropolis-Hastings acceptance
-        if (Math.log(Math.random()) < logAcceptRatio) {
-            state.currentBirth = propB;
-            state.currentDeath = propD;
-            state.currentTree = propTree; // Keep the mutated tree!
-            state.currentLogPosterior = newLogPost;
-            state.accepted++;
+
+        // ── Block-update scheme (mimics BEAST operator schedule) ────────────
+        // Each sub-step updates only ONE group of parameters so that each
+        // likelihood term identifies its own parameters independently.
+        // This prevents the non-identifiable drift of β ↔ μ through branch lengths.
+        const roll = Math.random();
+
+        if (roll < 0.33) {
+            // Block A: μ only (identified by Felsenstein / sequence divergence)
+            const propMu = state.currentMu * Math.exp((Math.random() - 0.5) * 0.5);
+            const newLP  = computeLogPosterior(state.currentBirth, state.currentDeath, propMu, state.currentTree);
+            if (Math.log(Math.random()) < newLP - state.currentLogPosterior) {
+                state.currentMu = propMu;
+                state.currentLogPosterior = newLP;
+                state.accepted++;
+            }
+
+        } else if (roll < 0.66) {
+            // Block B: β and δ only (identified by BD tree likelihood + root calibration)
+            const propB = state.currentBirth * Math.exp((Math.random() - 0.5) * 0.5);
+            const propD = state.currentDeath * Math.exp((Math.random() - 0.5) * 0.5);
+            const newLP = computeLogPosterior(propB, propD, state.currentMu, state.currentTree);
+            if (Math.log(Math.random()) < newLP - state.currentLogPosterior) {
+                state.currentBirth = propB;
+                state.currentDeath = propD;
+                state.currentLogPosterior = newLP;
+                state.accepted++;
+            }
+
+        } else {
+            // Block C: tree topology and/or branch lengths
+            const propTree = mutateTree(state.currentTree);
+            const newLP    = computeLogPosterior(state.currentBirth, state.currentDeath, state.currentMu, propTree);
+            if (Math.log(Math.random()) < newLP - state.currentLogPosterior) {
+                state.currentTree = propTree;
+                state.currentLogPosterior = newLP;
+                state.accepted++;
+            }
         }
 
         if(state.mcmcStep % 10 === 0) {
             state.traceData.gen.push(state.mcmcStep);
             state.traceData.birth.push(state.currentBirth);
             state.traceData.death.push(state.currentDeath);
+            state.traceData.mu.push(state.currentMu);
             state.traceData.logPost.push(state.currentLogPosterior);
             
             if(state.traceData.gen.length > 10000) {
                 state.traceData.gen.shift();
                 state.traceData.birth.shift();
                 state.traceData.death.shift();
+                state.traceData.mu.shift();
                 state.traceData.logPost.shift();
             }
         }
@@ -588,44 +924,97 @@ function runMCMCStep() {
         Generation: ${state.mcmcStep}<br>
         Acceptance: ${accRate}%<br>
         LogPosterior: ${state.currentLogPosterior.toFixed(2)}<br>
-        Current β (Birth): ${state.currentBirth.toFixed(3)}<br>
-        Current δ (Death): ${state.currentDeath.toFixed(3)}
+        Current β (Birth): ${state.currentBirth.toFixed(4)}<br>
+        Current δ (Death): ${state.currentDeath.toFixed(4)}<br>
+        Current μ (Mutation): ${state.currentMu.toFixed(5)}
     `;
 
-    // Compute recovery mean (post burn-in proxy)
-    let bSum = 0, dSum = 0;
-    let bMean = "-", dMean = "-";
-    let burnIn = Math.min(100, Math.floor(state.traceData.gen.length / 2));
-    let nSamples = state.traceData.gen.length - burnIn;
-    
-    if (nSamples > 10) {
-        for(let i=burnIn; i<state.traceData.gen.length; i++) {
-            bSum += state.traceData.birth[i];
-            dSum += state.traceData.death[i];
-        }
-        bMean = (bSum / nSamples).toFixed(3);
-        dMean = (dSum / nSamples).toFixed(3);
+    // Compute recovery statistics (post burn-in: last half of chain)
+    const burnIn  = Math.floor(state.traceData.gen.length / 2);
+    const bPost   = state.traceData.birth.slice(burnIn);
+    const dPost   = state.traceData.death.slice(burnIn);
+    const muPost  = state.traceData.mu.slice(burnIn);
+    const nPost   = bPost.length;
+
+    let bMean = '—', dMean = '—', muMean = '—';
+    let bHPD = [NaN, NaN], dHPD = [NaN, NaN], muHPD = [NaN, NaN];
+    let bESS = 0, dESS = 0, muESS = 0;
+
+    if (nPost > 10) {
+        bMean  = (bPost.reduce((a,b)=>a+b,0)  / nPost).toFixed(3);
+        dMean  = (dPost.reduce((a,b)=>a+b,0)  / nPost).toFixed(3);
+        muMean = (muPost.reduce((a,b)=>a+b,0) / nPost).toFixed(5);
+        bHPD   = computeHPD(bPost);
+        dHPD   = computeHPD(dPost);
+        muHPD  = computeHPD(muPost);
+        bESS   = computeESS(bPost);
+        dESS   = computeESS(dPost);
+        muESS  = computeESS(muPost);
     }
-    
-    document.getElementById("recovery-panel").innerHTML = `
-        <table class="recovery-table">
-            <tr>
-                <th>Param</th><th>True</th><th>Est. (Mean)</th>
-            </tr>
-            <tr>
-                <td>β</td><td>${state.trueBirth.toFixed(3)}</td><td style="color: blue; font-weight: bold;">${bMean}</td>
-            </tr>
-            <tr>
-                <td>δ</td><td>${state.trueDeath.toFixed(3)}</td><td style="color: red; font-weight: bold;">${dMean}</td>
-            </tr>
-        </table>
-        <div style="font-size: 11px; color: #777; margin-top: 8px;">*T, ρ, ψ, r held fixed.</div>
-    `;
+
+    const fmtHPD = (lo, hi, dp=3) => isNaN(lo) ? '—' : `[${lo.toFixed(dp)}, ${hi.toFixed(dp)}]`;
+
+    if (state.isRealData) {
+        document.getElementById("recovery-panel").innerHTML = `
+            <table class="recovery-table">
+                <tr><th>Param</th><th>Mean</th><th>95% HPD</th><th>ESS</th></tr>
+                <tr>
+                    <td>β</td>
+                    <td style="color:blue;font-weight:bold;">${bMean}</td>
+                    <td style="font-size:11px;">${fmtHPD(...bHPD)}</td>
+                    <td>${bESS > 1 ? Math.round(bESS) : '—'}</td>
+                </tr>
+                <tr>
+                    <td>δ</td>
+                    <td style="color:red;font-weight:bold;">${dMean}</td>
+                    <td style="font-size:11px;">${fmtHPD(...dHPD)}</td>
+                    <td>${dESS > 1 ? Math.round(dESS) : '—'}</td>
+                </tr>
+                <tr>
+                    <td>μ</td>
+                    <td style="color:green;font-weight:bold;">${muMean}</td>
+                    <td style="font-size:11px;">${fmtHPD(...muHPD, 5)}</td>
+                    <td>${muESS > 1 ? Math.round(muESS) : '—'}</td>
+                </tr>
+            </table>
+            <div style="font-size:11px;color:#777;margin-top:8px;">Real data · ½ burn-in discarded</div>
+        `;
+    } else {
+        document.getElementById("recovery-panel").innerHTML = `
+            <table class="recovery-table">
+                <tr><th>Param</th><th>True</th><th>Mean</th><th>95% HPD</th><th>ESS</th></tr>
+                <tr>
+                    <td>β</td>
+                    <td>${state.trueBirth.toFixed(3)}</td>
+                    <td style="color:blue;font-weight:bold;">${bMean}</td>
+                    <td style="font-size:11px;">${fmtHPD(...bHPD)}</td>
+                    <td>${bESS > 1 ? Math.round(bESS) : '—'}</td>
+                </tr>
+                <tr>
+                    <td>δ</td>
+                    <td>${state.trueDeath.toFixed(3)}</td>
+                    <td style="color:red;font-weight:bold;">${dMean}</td>
+                    <td style="font-size:11px;">${fmtHPD(...dHPD)}</td>
+                    <td>${dESS > 1 ? Math.round(dESS) : '—'}</td>
+                </tr>
+                <tr>
+                    <td>μ</td>
+                    <td>${state.trueMu.toFixed(5)}</td>
+                    <td style="color:green;font-weight:bold;">${muMean}</td>
+                    <td style="font-size:11px;">${fmtHPD(...muHPD, 5)}</td>
+                    <td>${muESS > 1 ? Math.round(muESS) : '—'}</td>
+                </tr>
+            </table>
+            <div style="font-size:11px;color:#777;margin-top:8px;">T, ρ, ψ, r fixed &middot; ½ burn-in discarded</div>
+        `;
+    }
 
     // Update trace chart
     chart.data.labels = state.traceData.gen;
     chart.data.datasets[0].data = state.traceData.birth;
     chart.data.datasets[1].data = state.traceData.death;
+    // μ is plotted ×10 on the right axis so it's visible alongside β/δ
+    chart.data.datasets[2].data = state.traceData.mu.map(v => v * 10);
     chart.update();
 
     // Update histograms every 100 steps (more expensive)
@@ -642,9 +1031,11 @@ function runMCMCStep() {
     // Refresh single current tree every 50 steps
     if (state.mcmcStep % 50 === 0) {
         drawTreeCanvas(state.currentTree, "tree-container");
-        let dist = getTreeDistance(state.currentTree, state.trueTree);
-        let distEl = document.getElementById("tree-dist");
-        if (distEl) distEl.textContent = `RF dist: ${dist}`;
+        if (!state.isRealData && state.trueTree) {
+            let dist = getTreeDistance(state.currentTree, state.trueTree);
+            let distEl = document.getElementById("tree-dist");
+            if (distEl) distEl.textContent = `RF dist: ${dist}`;
+        }
     }
 
     // Redraw DensiTree every 200 steps
@@ -827,17 +1218,24 @@ function drawDensiTree() {
     ctx.clearRect(0, 0, W, H);
     if (samples.length === 0) return;
 
-    // Build fixed global leaf order from true tree (T1…TN sorted numerically)
+    // Build fixed global leaf order — from true tree if available, else from first sample.
     const leafOrder = [];
     function collectLeafNames(node) {
         if (!node.childs || node.childs.length === 0) {
-            if (!node.leaf_dead && node.id && node.id.startsWith('T')) leafOrder.push(node.id);
+            if (!node.leaf_dead && node.id) leafOrder.push(node.id);
             return;
         }
         for (const c of node.childs) collectLeafNames(c);
     }
-    collectLeafNames(state.trueTree);
-    leafOrder.sort((a, b) => parseInt(a.slice(1)) - parseInt(b.slice(1)));
+    const refTree = state.trueTree || samples[0];
+    collectLeafNames(refTree);
+    // Sort: numeric suffix first (T1, T2…), then alphabetical for real data labels
+    leafOrder.sort((a, b) => {
+        const na = parseInt(a.replace(/\D/g, ''));
+        const nb = parseInt(b.replace(/\D/g, ''));
+        if (!isNaN(na) && !isNaN(nb)) return na - nb;
+        return a.localeCompare(b);
+    });
 
     const nLeaves = leafOrder.length;
     if (nLeaves === 0) return;
